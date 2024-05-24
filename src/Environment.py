@@ -15,18 +15,20 @@ MAX_STEPS = 10000
 
 
 class Environment():
-    def __init__(self, gpu, mode):
+    def __init__(self, gpu, mode, model_name):
         self.mode = mode
         self.env = env.Frame(self.mode)
         v, w, _, infeasible_action = self.env.reset(test=True)
         self.agent = Agent.Agent(v.shape[1], w.shape[1], N_FEATURE, infeasible_action.shape[1], gpu)
-        self.agent.brain.model.Load(filename="trained_model_{0}_{1}".format(env.__name__, self.mode))
+        self.model_name = model_name
+        #self.agent.brain.model.Load(filename="trained_model_{0}_{1}".format(env.__name__, self.mode), directory=f"src/{self.model_name}")
         if gpu:
             self.agent.brain.model = self.agent.brain.model.to("cuda")
         pass
 
     def Train(self, n_episode):
         history = np.zeros(n_episode//RECORD_INTERVAL, dtype=float)
+        train_losses = np.zeros(n_episode, dtype=float)
         top_score = -np.inf
         top_scored_iteration = -1
         top_scored_model = deepcopy(self.agent.brain.model)
@@ -48,6 +50,7 @@ class Environment():
                 if ep_end:
                     break
             print("episode {0:<4}: step={1:<3} reward={2:<+5.1f} aveQ={3:<+7.2f} loss={4:<7.2f}".format(episode, t+1, total_reward, aveQ/(t+1), aveloss/(t+1)))
+            train_losses[episode] = aveloss/(t+1)
             
             if episode % RECORD_INTERVAL == RECORD_INTERVAL-1:
                 v, w, C, infeasible_action = self.env.reset(test=True)
@@ -66,26 +69,29 @@ class Environment():
                 history[episode//RECORD_INTERVAL] = total_reward
 
         
-        if not path.exists('result'):
-            makedirs('result')
+        result_dir = f"result/{self.model_name}"
+        if not path.exists(result_dir): makedirs(result_dir)
 
-        with open("result/info.txt", 'w') as f:
+        with open(f"{result_dir}/info.txt", 'w') as f:
             f.write(str.format("top-scored iteration: {0} \n", top_scored_iteration+1))
 
-        top_scored_model.Save(filename="trained_model_{0}_{1}".format(env.__name__, self.mode), directory="result")
+        top_scored_model.Save(filename="trained_model_{0}_{1}".format(env.__name__, self.mode), directory=result_dir)
 
-        Plotter.graph(history)
+        Plotter.graph(history, result_dir)
 
-        with open("result/reward.csv", 'w') as f:
+        with open(f"{result_dir}/reward.csv", 'w') as f:
             writer = csv.writer(f, lineterminator='\n')
-            writer.writerow(history)       
+            writer.writerow(history)
+        with open(f"{result_dir}/loss.csv", 'w') as f:
+            writer = csv.writer(f, lineterminator='\n')
+            writer.writerow(train_losses)       
 
 
     def Test(self, test_model):
         v, w, C, infeasible_action = self.env.reset(test=test_model)
         self.agent = Agent.Agent(v.shape[1], w.shape[1], N_FEATURE, infeasible_action.shape[1], False)
-        self.agent.brain.model.Load(filename="trained_model_{0}_{1}".format(env.__name__, self.mode))
-        self.env.render(show=True, title="Initial cross-sections")
+        self.agent.brain.model.Load(filename="trained_model_{0}_{1}".format(env.__name__, self.mode), directory=f"result/{self.model_name}")  # "src" or f"result/{self.model_name}"
+        self.env.render(show=False, title="Initial cross-sections", result_dir=f"result/{self.model_name}")
         total_reward = 0.0
 
         for i in range(MAX_STEPS):
@@ -95,13 +101,14 @@ class Environment():
             v, w, reward, ep_end, infeasible_action = self.env.step(action)
             # print(action)
             total_reward += reward
+            print(f"{total_reward = :.3f}")
             
             if ep_end:
                 if self.mode == "inc":
-                    self.env.render(show=True, title="After optimization ({0} steps)".format(i+1))
+                    self.env.render(show=False, title="After optimization ({0} steps)".format(i+1), result_dir=f"result/{self.model_name}")
                 elif self.mode == "dec":
                     self.env.sec_num[action[0]] += 50
-                    self.env.render(show=True, title="After optimization ({0} steps)".format(i))
+                    self.env.render(show=False, title="After optimization ({0} steps)".format(i), result_dir=f"result/{self.model_name}")
                 break
 
                     
