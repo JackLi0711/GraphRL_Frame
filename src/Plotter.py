@@ -79,15 +79,23 @@ def Draw(node, connectivity, line_width, node_color=None, line_color=None, node_
 
 	return
 
-def graph(y, result_dir="result", name=0):
+def plot_reward(y, result_dir="result", name=0):
 	x = np.linspace(0, len(y)-1, len(y)).astype(int)
 	pyplot.figure(figsize=(10,4))
 	pyplot.plot(x, y, linewidth=1)
 	xt = np.linspace(0, len(y)-1, 11).astype(int)
 	pyplot.xticks(xt, xt)
 
-	# save figure
 	pyplot.savefig(f"{result_dir}/graph("+str(name)+").png")
-	#pyplot.show()
 	pyplot.close()
 
+def plot_loss(losses, result_dir="result"):
+	pyplot.figure(figsize=(12, 6))
+	pyplot.plot(losses, color='black', linewidth=0.5)
+	pyplot.xlabel('Trained episode')
+	pyplot.ylabel('Average loss')
+	pyplot.grid()
+	pyplot.yscale("log")
+
+	pyplot.savefig(f"{result_dir}/loss.png")
+	pyplot.close()

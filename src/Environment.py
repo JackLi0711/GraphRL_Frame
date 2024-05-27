@@ -15,12 +15,14 @@ MAX_STEPS = 10000
 
 
 class Environment():
-    def __init__(self, gpu, mode, model_name):
+    def __init__(self, gpu, mode, model_name, country):
         self.mode = mode
-        self.env = env.Frame(self.mode)
+        self.model_name = model_name
+        self.country = country
+
+        self.env = env.Frame(self.mode, self.country)
         v, w, _, infeasible_action = self.env.reset(test=True)
         self.agent = Agent.Agent(v.shape[1], w.shape[1], N_FEATURE, infeasible_action.shape[1], gpu)
-        self.model_name = model_name
         #self.agent.brain.model.Load(filename="trained_model_{0}_{1}".format(env.__name__, self.mode), directory=f"src/{self.model_name}")
         if gpu:
             self.agent.brain.model = self.agent.brain.model.to("cuda")
@@ -74,10 +76,12 @@ class Environment():
 
         with open(f"{result_dir}/info.txt", 'w') as f:
             f.write(str.format("top-scored iteration: {0} \n", top_scored_iteration+1))
+            f.write(f"top-score: {top_score:.3f}\n")
 
         top_scored_model.Save(filename="trained_model_{0}_{1}".format(env.__name__, self.mode), directory=result_dir)
 
-        Plotter.graph(history, result_dir)
+        Plotter.plot_reward(history, result_dir)
+        Plotter.plot_loss(train_losses, result_dir)
 
         with open(f"{result_dir}/reward.csv", 'w') as f:
             writer = csv.writer(f, lineterminator='\n')

@@ -8,13 +8,13 @@ import time
 
 def LinearAnalysis(nx, ny, node, connectivity, A, I, load, E=2.05e11):
 	'''
-	nx (number of spans) [1/1]
-	ny (number of stories) [1/1]
-	node (nodal coordinates) [m]
-	A (cross-sectional area) [m^2]
-	I (second moment of inertia) [m^4]
-	load (nodal loads) [N]
-	E (initial elastic modulus) [N/m^2]
+	- nx (number of spans) [1/1]
+	- ny (number of stories) [1/1]
+	- node (nodal coordinates) [m]
+	- A (cross-sectional area) [m^2]
+	- I (second moment of inertia) [m^4]
+	- load (nodal loads) [N]
+	- E (initial elastic modulus) [N/m^2]
 	'''
 
 	nk = np.shape(node)[0]
@@ -55,29 +55,29 @@ def LinearAnalysis(nx, ny, node, connectivity, A, I, load, E=2.05e11):
 	ops.numberer('RCM') # RCM degree-of-freedom numbering object to provide the mapping between the degrees-of-freedom at the nodes and the equation numbers
 	ops.system('ProfileSPD') # This is sometimes also referred to as a skyline storage scheme.
 
-	ops.integrator('LoadControl',1.0)
+	ops.integrator('LoadControl', 1.0)
 	ops.algorithm('Linear')
 	ops.analysis('Static')
 	ops.analyze(1)
 
 	disp = np.array([ops.nodeDisp(i) for i in range(nk)])
-	force = np.array([ops.basicForce(i) for i in range(nm)]) # 0: axial force 1: moment at i end 2: moment at j end
+	force = np.array([ops.basicForce(i) for i in range(nm)]) # 0: axial force, 1: moment at i-end, 2: moment at j-end
 
 	return disp, force
 
 def NonlinearAnalysis(nx, ny, node, connectivity, A, I, Zp, Sy, H, load, E=2.05e11, alpha=0.01):
 	'''
-	nx (number of spans) [1/1]
-	ny (number of stories) [1/1]
-	node (nodal coordinates) [m]
-	A (cross-sectional area) [m^2]
-	I (second moment of inertia) [m^4]
-	Zp (Full plastic section modulus) [m^3]
-	Sy (Yield stress) [N/m^2]
-	H (height of the section) [m]
-	load (nodal loads) [N]
-	E (initial elastic modulus) [N/m^2]
-	alpha (tangent after yielding/initial elastic modulus) [1/1]
+	- nx (number of spans) [1/1]
+	- ny (number of stories) [1/1]
+	- node (nodal coordinates) [m]
+	- A (cross-sectional area) [m^2]
+	- I (second moment of inertia) [m^4]
+	- Zp (Full plastic section modulus) [m^3]
+	- Sy (Yield stress) [N/m^2]
+	- H (height of the section) [m]
+	- load (nodal loads) [N]
+	- E (initial elastic modulus) [N/m^2]
+	- alpha (tangent after yielding/initial elastic modulus) [1/1]
 	'''
 
 	nk = np.shape(node)[0]
