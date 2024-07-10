@@ -83,10 +83,12 @@ def plot_reward(y, result_dir="result", name=0):
 	x = np.linspace(0, len(y)-1, len(y)).astype(int)
 	pyplot.figure(figsize=(10,4))
 	pyplot.plot(x, y, linewidth=1)
+	pyplot.xlabel('Testing episode')
+	pyplot.ylabel('Cumulative reward')
 	xt = np.linspace(0, len(y)-1, 11).astype(int)
 	pyplot.xticks(xt, xt)
 
-	pyplot.savefig(f"{result_dir}/graph("+str(name)+").png")
+	pyplot.savefig(f"{result_dir}/reward.png")
 	pyplot.close()
 
 def plot_loss(losses, result_dir="result"):
@@ -99,3 +101,29 @@ def plot_loss(losses, result_dir="result"):
 
 	pyplot.savefig(f"{result_dir}/loss.png")
 	pyplot.close()
+
+def plot_fail_reasons(train_fail_reasons: list[str], test_fail_reasons: list[str], result_dir: str) -> None:    
+    train_reasons = {}
+    test_reasons = {}
+    for reason in train_fail_reasons:
+        if reason in train_reasons:
+            train_reasons[reason] += 1
+        else:
+            train_reasons[reason] = 1
+			
+    for reason in test_fail_reasons:
+        if reason in test_reasons:
+            test_reasons[reason] += 1
+        else:
+            test_reasons[reason] = 1
+    
+    fig, axs = pyplot.subplots(1, 2, figsize=(15, 5))
+    axs[0].bar(train_reasons.keys(), train_reasons.values())
+    axs[0].set_title("training fail reasons")
+    axs[1].bar(test_reasons.keys(), test_reasons.values())
+    axs[1].set_title("testing fail reasons")
+
+    pyplot.savefig(f"{result_dir}/fail_reasons.png")
+    pyplot.close()
+
+

@@ -190,51 +190,77 @@ def allowable_stress(nm, nm_dummy, n_column, section, length, E, Fyc, Fyb, term)
 		return allowable_stress_compression_dummy/1.5, allowable_stress_tension_dummy/1.5, allowable_stress_bending_dummy/1.5
 
 # @nb.njit(parallel=True)
-def compute_cof(nx, ny, nk, n_column, Fyc, Fyb, Zp, stress_dummy):
+def compute_cof(nx, ny, nk, n_column, Fyc, Fyb, Zp, stress_dummy, country) -> np.ndarray:
 	'''
-	(input)
-	stress_dummy<float>[nm_dummy,3] nm_dummy stresses, with an order that columns come first and beams next.
-	sec_num<int>: nm section numbering (200,250,...)
-	(output)
-	cof<float>: column-to-beam strength ratios for all the nodes
+	- Input
+		- stress_dummy [np.ndarray, shape: (nm_dummy,3)]: nm_dummy stresses, with an order that columns come first and beams next.
+	- Output
+		- cof [np.ndarray, shape: (node_num)]: column-to-beam strength ratios for all the nodes
 	'''
 	cof = np.ones(nk) * np.inf
 
-	for ii in range(nx+1, nk-(nx+1)):
-		i = ii // (nx+1)-1
-		j = ii % (nx+1)
+	if country == "Japan":
+		for ii in range(nx+1, nk-(nx+1)):
+			i = ii // (nx+1)-1  # 在第幾層樓 (縱坐標)
+			j = ii % (nx+1)  	# horizontal grid index (橫坐標)
 
-		# bottom column
-		axial_force_ratio = np.abs(stress_dummy[ii-(nx+1),0] / Fyc)
-		if (axial_force_ratio < 0.5):
-			alpha = 1 - 4*np.power(axial_force_ratio,2)/3
-		else:
-			alpha = 4 * (1-axial_force_ratio) / 3
-		Mpc_bottom = np.clip(alpha, 0.0, None) * Fyc * Zp[ii-(nx+1)] # alpha is clipped to avoid negative COF
-
-		# upper column
-		if (i!=(ny-1)):
-			axial_force_ratio = np.abs(stress_dummy[ii,0] / Fyc)
-			if(axial_force_ratio < 0.5):
-				alpha = 1 - 4*np.power(axial_force_ratio,2)/3
+			# bottom column
+			axial_force_ratio = np.abs(stress_dummy[ii-(nx+1),0] / Fyc)  # stress_dummy[:,0] --> axial force / A (unit: N/m^2)
+			if (axial_force_ratio < 0.5):
+				alpha = 1 - 4 * np.power(axial_force_ratio,2) / 3
 			else:
-				alpha = 4 * (1-axial_force_ratio)/3
-			Mpc_upper = np.clip(alpha, 1.0e-5, None) * Fyc * Zp[ii] # alpha is clipped to avoid negative COF
-		else:
-			Mpc_upper = 0.0
+				alpha = 4 * (1 - axial_force_ratio) / 3
+			Mpc_bottom = np.clip(alpha, 0.0, None) * Fyc * Zp[ii-(nx+1)]  # alpha is clipped to avoid negative COF
 
-		# left and right beams
-		if (j==0):
-			Mpb_left = 0.0
-			Mpb_right = Fyb * Zp[n_column + nx*i + j]
-		elif (j==nx):
-			Mpb_left = Fyb * Zp[n_column + nx*i + j-1]
-			Mpb_right = 0.0
-		else:
-			Mpb_left = Fyb * Zp[n_column + nx*i + j-1]
-			Mpb_right = Fyb * Zp[n_column + nx*i + j]
+			# upper column
+			if (i != (ny-1)):
+				axial_force_ratio = np.abs(stress_dummy[ii,0] / Fyc)
+				if (axial_force_ratio < 0.5):
+					alpha = 1 - 4 * np.power(axial_force_ratio,2) / 3
+				else:
+					alpha = 4 * (1 - axial_force_ratio) / 3
+				Mpc_upper = np.clip(alpha, 1.0e-5, None) * Fyc * Zp[ii]  # alpha is clipped to avoid negative COF
+			else:
+				Mpc_upper = 0.0
 
-		cof[ii] = (Mpc_bottom + Mpc_upper) / (Mpb_left + Mpb_right)
+			# left and right beams
+			if (j == 0):
+				Mpb_left = 0.0
+				Mpb_right = Fyb * Zp[n_column + nx*i + j]
+			elif (j == nx):
+				Mpb_left = Fyb * Zp[n_column + nx*i + j-1]
+				Mpb_right = 0.0
+			else:
+				Mpb_left = Fyb * Zp[n_column + nx*i + j-1]
+				Mpb_right = Fyb * Zp[n_column + nx*i + j]
+
+			cof[ii] = (Mpc_bottom + Mpc_upper) / (Mpb_left + Mpb_right)
+
+	if country == "Taiwan":
+		reduced_stress = stress_dummy[:,0]  	  # reduced_stress: np.abs(Puc / Ag), stress_dummy[:,0]: axial force / A (unit: N/m^2)
+		reduced_stress[reduced_stress > 0] = 0.0  # only consider compression case
+
+		for ii in range(nx+1, nk-(nx+1)):
+			i = ii // (nx+1)-1  # 在第幾層樓 (縱坐標)
+			j = ii % (nx+1)  	# horizontal grid index (橫坐標)
+
+			# bottom column
+			Mpc_bottom = Zp[ii-(nx+1)] * (Fyc - np.abs(reduced_stress)[ii-(nx+1)])
+			# upper column
+			Mpc_upper = Zp[ii] * (Fyc - np.abs(reduced_stress)[ii]) if (i != (ny-1)) else 0.0
+			# left and right beams
+			if (j == 0):
+				Mpb_left = 0.0
+				Mpb_right = Zp[n_column + nx*i + j] * Fyb
+			elif (j == nx):
+				Mpb_left = Zp[n_column + nx*i + j-1] * Fyb
+				Mpb_right = 0.0
+			else:
+				Mpb_left = Zp[n_column + nx*i + j-1] * Fyb
+				Mpb_right = Zp[n_column + nx*i + j] * Fyb
+
+			scwb_ratio = (Mpc_bottom + Mpc_upper) / (Mpb_left + Mpb_right)
+			cof[ii] = scwb_ratio / 1.25  # Taiwan code requires a safety factor of 1.25
 
 	return cof
 
@@ -293,9 +319,10 @@ def check_collapse(nx, ny, n_column, nm, hinge):
 
 class Frame():
 
-	def __init__(self, mode, country):
-		self.mode = mode  # "dec" or "inc"
-		self.country = country  # "Japan" or "Taiwan"
+	def __init__(self, mode, country, reward_type):
+		self.mode = mode  # "dec", "inc"
+		self.country = country  # "Japan", "Taiwan"
+		self.reward_type = reward_type  # "original", "volume"
 
 		if self.country == "Japan":
 			self.column_section_list = {
@@ -341,14 +368,62 @@ class Frame():
 				1000: (321.8/1.0E4, 2*515000/1.0E8, 515000/1.0E8, 12600/1.0E8, 10300/1.0E6, 842/1.0E6) # 1000x300x16x28
 			}
 			self.beam_plastic_section_modulus = {200:301/1.0E6, 250:550/1.0E6, 300:842/1.0E6, 350:1380/1.0E6, 400:1770/1.0E6, 450:2750/1.0E6, 500:3130/1.0E6, 550:3520/1.0E6, 600:4540/1.0E6, 650:5030/1.0E6, 700:5580/1.0E6, 750:7850/1.0E6, 800:8520/1.0E6, 850:9540/1.0E6, 900:10300/1.0E6, 950:11100/1.0E6, 1000: 11900/1.0E6}
+		
 		elif self.country == "Taiwan":
-			pass
+			self.column_section_list = {
+				## A, Ix, Iz(strong), Iy(weak), Zz(strong), Zy(weak) [metric]
+				300: (264.00/1.0E4, 2*48092/1.0E8, 48092/1.0E8, 48092/1.0E8, 2748/1.0E6, 2748/1.0E6),  # 350x350x20
+				350: (288.64/1.0E4, 2*51988/1.0E8, 51988/1.0E8, 51988/1.0E8, 2971/1.0E6, 2971/1.0E6),  # 350x350x22
+				400: (325.00/1.0E4, 2*57552/1.0E8, 57552/1.0E8, 57552/1.0E8, 3289/1.0E6, 3289/1.0E6),  # 350x350x25
+				450: (388.64/1.0E4, 2*78551/1.0E8, 78551/1.0E8, 78551/1.0E8, 4187/1.0E6, 4187/1.0E6),  # 375x375x28
+				500: (439.04/1.0E4, 2*86837/1.0E8, 86837/1.0E8, 86837/1.0E8, 4631/1.0E6, 4631/1.0E6),  # 375x375x32
+				550: (488.16/1.0E4, 2*94554/1.0E8, 94554/1.0E8, 94554/1.0E8, 5043/1.0E6, 5043/1.0E6),  # 375x375x36
+				600: (576.00/1.0E4, 2*125952/1.0E8, 125952/1.0E8, 125952/1.0E8, 6298/1.0E6, 6298/1.0E6),  # 400x400x40
+				650: (639.00/1.0E4, 2*136373/1.0E8, 136373/1.0E8, 136373/1.0E8, 6819/1.0E6, 6819/1.0E6),  # 400x400x45
+				700: (700.00/1.0E4, 2*145833/1.0E8, 145833/1.0E8, 145833/1.0E8, 7292/1.0E6, 7292/1.0E6),  # 400x400x50
+				750: (743.36/1.0E4, 2*204835/1.0E8, 204835/1.0E8, 204835/1.0E8, 9104/1.0E6, 9104/1.0E6),  # 450x450x46
+				800: (771.84/1.0E4, 2*210851/1.0E8, 210851/1.0E8, 210851/1.0E8, 9371/1.0E6, 9371/1.0E6),  # 450x450x48
+				850: (800.00/1.0E4, 2*216667/1.0E8, 216667/1.0E8, 216667/1.0E8, 9630/1.0E6, 9630/1.0E6),  # 450x450x50
+				900: (835.36/1.0E4, 2*289914/1.0E8, 289914/1.0E8, 289914/1.0E8, 11597/1.0E6, 11597/1.0E6),  # 500x500x46
+				950: (867.84/1.0E4, 2*298838/1.0E8, 298838/1.0E8, 298838/1.0E8, 11954/1.0E6, 11954/1.0E6),  # 500x500x48
+				1000: (900.00/1.0E4, 2*307500/1.0E8, 307500/1.0E8, 307500/1.0E8, 12300/1.0E6, 12300/1.0E6)  # 500x500x50
+			}
+			self.column_plastic_section_modulus = {300:4122/1.0E6, 350:4456/1.0E6, 400:4933/1.0E6, 450:6280/1.0E6, 500:6947/1.0E6, 550:7564/1.0E6, 600:9446/1.0E6, 650:10228/1.0E6, 700:10937/1.0E6, 750:13656/1.0E6, 800:14057/1.0E6, 850:14444/1.0E6, 900:17395/1.0E6, 950:17930/1.0E6, 1000:18450/1.0E6}
+
+			self.beam_section_list = {
+				## A, Ix, Iz(strong), Iy(weak), Zz(strong), Zy(weak) [metric]
+				300: (92.62/1.0E4, 2*20274/1.0E8, 20274/1.0E8, 2135/1.0E8, 1159/1.0E6, 214/1.0E6),  # 350x200x9x16
+				350: (107.90/1.0E4, 2*24041/1.0E8, 24041/1.0E8, 2669/1.0E8, 1374/1.0E6, 267/1.0E6),  # 350x200x9x20
+				400: (124.72/1.0E4, 2*26569/1.0E8, 26569/1.0E8, 2938/1.0E8, 1518/1.0E6, 294/1.0E6),  # 350x200x12x22
+				450: (139.00/1.0E4, 2*34110/1.0E8, 34110/1.0E8, 3338/1.0E8, 1819/1.0E6, 334/1.0E6),  # 375x200x12x25
+				500: (164.00/1.0E4, 2*41779/1.0E8, 41779/1.0E8, 6515/1.0E8, 2228/1.0E6, 521/1.0E6),  # 375x250x12x25
+				550: (178.28/1.0E4, 2*45481/1.0E8, 45481/1.0E8, 7296/1.0E8, 2426/1.0E6, 584/1.0E6),  # 375x250x12x28
+				600: (200.32/1.0E4, 2*58099/1.0E8, 58099/1.0E8, 8338/1.0E8, 2905/1.0E6, 667/1.0E6),  # 400x250x12x32
+				650: (232.48/1.0E4, 2*64523/1.0E8, 64523/1.0E8, 9386/1.0E8, 3226/1.0E6, 751/1.0E6),  # 400x250x16x36
+				700: (268.48/1.0E4, 2*76486/1.0E8, 76486/1.0E8, 16211/1.0E8, 3824/1.0E6, 1081/1.0E6),  # 400x300x16x36
+				750: (284.04/1.0E4, 2*100889/1.0E8, 100889/1.0E8, 16218/1.0E8, 4484/1.0E6, 1081/1.0E6),  # 450x300x18x36
+				800: (306.60/1.0E4, 2*108778/1.0E8, 108778/1.0E8, 18018/1.0E8, 4835/1.0E6, 1201/1.0E6),  # 450x300x18x40
+				850: (334.80/1.0E4, 2*118171/1.0E8, 118171/1.0E8, 20267/1.0E8, 5252/1.0E6, 1351/1.0E6),  # 450x300x18x45
+				900: (364.00/1.0E4, 2*160841/1.0E8, 160841/1.0E8, 28611/1.0E8, 6434/1.0E6, 1635/1.0E6),  # 500x350x20x40
+				950: (397.00/1.0E4, 2*175051/1.0E8, 175051/1.0E8, 32184/1.0E8, 7002/1.0E6, 1839/1.0E6),  # 500x350x20x45
+				1000: (430.00/1.0E4, 2*188583/1.0E8, 188583/1.0E8, 35756/1.0E8, 7543/1.0E6, 2043/1.0E6)  # 500x350x20x50
+			}
+			self.beam_plastic_section_modulus = {300:1298/1.0E6, 350:1539/1.0E6, 400:1700/1.0E6, 450:2037/1.0E6, 500:2496/1.0E6, 550:2717/1.0E6, 600:3254/1.0E6, 650:3613/1.0E6, 700:4283/1.0E6, 750:5022/1.0E6, 800:5415/1.0E6, 850:5882/1.0E6, 900:7206/1.0E6, 950:7842/1.0E6, 1000:8449/1.0E6}
+
+		self.min_section_index = list(self.column_section_list.keys())[0]  # Japan: 200, Taiwan: 300
+		self.max_section_index = list(self.column_section_list.keys())[-1]  # Japan: 1000, Taiwan: 1000
 
 		# material
-		self.DESIGN_STRENGTH_BEAM = 235e6   # [N/m^2], 235e6 for SN400 and BCP235; 325e6 for SN490 and BCP325
-		self.DESIGN_STRENGTH_COLUMN = 235e6 # [N/m^2], 235e6 for SN400 and BCP235; 325e6 for SN490 and BCP325
-		self.E = 2.05e11
-		self.G = 7.9e10
+		if self.country == "Japan":
+			self.DESIGN_STRENGTH_BEAM = 235e6   # [N/m^2], 235e6 for SN400 and BCP235; 325e6 for SN490 and BCP325
+			self.DESIGN_STRENGTH_COLUMN = 235e6 # [N/m^2], 235e6 for SN400 and BCP235; 325e6 for SN490 and BCP325
+			self.E = 2.05e11
+			self.G = 7.9e10
+		elif self.country == "Taiwan":
+			self.DESIGN_STRENGTH_BEAM = 350e6  	 # [N/m^2]
+			self.DESIGN_STRENGTH_COLUMN = 350e6  # [N/m^2]
+			self.E = 2.00e11  # [N/m^2]
+			self.G = 7.93e10  # [N/m^2]
 
 		# design constraint
 		self.allowable_column_disp = 1/200
@@ -358,28 +433,53 @@ class Frame():
 		self.reset(test=True)
 
 	def reset(self, test=0):
-		if test == 0: ## Randomly generate the structural shape if test == 0
-			self.NX = np.random.randint(2,6)
-			self.NY = np.random.randint(2,11)
-			self.span = 5.0+np.random.rand(self.NX)*10.0
-			self.height = np.ones(self.NY)*3.0
-			self.height[0] += np.random.rand()*0.5
-			self.height += np.random.rand()*1.0
-		else: ## Generate a prefixed structural shape otherwise
-			if test == 1:
-				self.NX = 3 # ex.1: 3; ex.2: 5; ex.3: 6
-				self.NY = 8 # ex.1: 8; ex.2: 4; ex.3: 12
-				self.span = np.array([12,8,8]) # ex.1: np.array([12,8,8]); ex.2: np.array([8,12,12,10,10]); ex.3: np.array([10,10,6,8,8,8])
-			elif test == 2:
-				self.NX = 5 # ex.1: 3; ex.2: 5; ex.3: 6
-				self.NY = 4 # ex.1: 8; ex.2: 4; ex.3: 12
-				self.span = np.array([8,12,12,10,10]) # ex.1: np.array([12,8,8]); ex.2: np.array([8,12,12,10,10]); ex.3: np.array([10,10,6,8,8,8])
-			elif test == 3:
-				self.NX = 6 # ex.1: 3; ex.2: 5; ex.3: 6
-				self.NY = 12 # ex.1: 8; ex.2: 4; ex.3: 12
-				self.span = np.array([10,10,6,8,8,8]) # ex.1: np.array([12,8,8]); ex.2: np.array([8,12,12,10,10]); ex.3: np.array([10,10,6,8,8,8])
-			self.height = np.ones(self.NY)*3.5 # ex.1 2 and 3: 3.5
-			self.height[0] = 4.0 # ex.1 2 and 3: 4.03.5
+		if self.country == "Japan":
+			if test == 0: ## Randomly generate the structural shape if test == 0
+				self.NX = np.random.randint(2,6)
+				self.NY = np.random.randint(2,11)
+				self.span = 5.0+np.random.rand(self.NX)*10.0
+				self.height = np.ones(self.NY)*3.0
+				self.height[0] += np.random.rand()*0.5
+				self.height += np.random.rand()*1.0
+			else: ## Generate a prefixed structural shape otherwise
+				if test == 1:
+					self.NX = 3 # ex.1: 3; ex.2: 5; ex.3: 6
+					self.NY = 8 # ex.1: 8; ex.2: 4; ex.3: 12
+					self.span = np.array([12,8,8]) # ex.1: np.array([12,8,8]); ex.2: np.array([8,12,12,10,10]); ex.3: np.array([10,10,6,8,8,8])
+				elif test == 2:
+					self.NX = 5 # ex.1: 3; ex.2: 5; ex.3: 6
+					self.NY = 4 # ex.1: 8; ex.2: 4; ex.3: 12
+					self.span = np.array([8,12,12,10,10]) # ex.1: np.array([12,8,8]); ex.2: np.array([8,12,12,10,10]); ex.3: np.array([10,10,6,8,8,8])
+				elif test == 3:
+					self.NX = 6 # ex.1: 3; ex.2: 5; ex.3: 6
+					self.NY = 12 # ex.1: 8; ex.2: 4; ex.3: 12
+					self.span = np.array([10,10,6,8,8,8]) # ex.1: np.array([12,8,8]); ex.2: np.array([8,12,12,10,10]); ex.3: np.array([10,10,6,8,8,8])
+				self.height = np.ones(self.NY)*3.5 # ex.1 2 and 3: 3.5
+				self.height[0] = 4.0 # ex.1 2 and 3: 4.03.5
+
+		elif self.country == "Taiwan":
+			if test == 0:  # Randomly generate the structural shape if test == 0
+				self.NX = np.random.randint(2, 6)  				  # span_num: 2-5
+				self.NY = np.random.randint(3, 11)  			  # story_num: 3-10
+				self.span = 5.0 + np.random.rand(self.NX) * 10.0  # span_length: 5.0-15.0 m
+				self.height = np.ones(self.NY) * 3.0
+				self.height += np.random.rand() * 1.0  			  # story_height (other): 3.0-4.0 m
+				self.height[0] += 0.5  							  # story_height (1F): 3.5-4.5 m
+			else:  		   # Generate a prefixed structural shape otherwise
+				if test == 1:
+					self.NX = 4
+					self.NY = 5
+					self.span = np.array([13, 11, 14, 13])
+				elif test == 2:
+					self.NX = 5
+					self.NY = 4
+					self.span = np.array([8, 12, 12, 10, 10])
+				elif test == 3:
+					self.NX = 6
+					self.NY = 12
+					self.span = np.array([10, 10, 6, 8, 8, 8])
+				self.height = np.ones(self.NY) * 3.5
+				self.height[0] = 4.0
 
 
 		self.nk, self.nm, self.node, self.connectivity, self.n_column, self.member_type, self.length = InitializeGeometry(self.NX, self.NY, self.span, self.height)
@@ -398,14 +498,15 @@ class Frame():
 		
 		# initialize RL episode
 		self.done = False
+		self.fail_reason = None
 		self.steps = 0
 		self.total_reward = 0
 		self.selected_action = None
 
 		if self.mode == 'dec':
-			self.sec_num = np.ones(self.nm, dtype=int) * 1000 # !!! reducing size
+			self.sec_num = np.ones(self.nm, dtype=int) * self.max_section_index # !!! reducing size
 		elif self.mode == 'inc':
-			self.sec_num = np.ones(self.nm, dtype=int) * 200 # !!! increasing size
+			self.sec_num = np.ones(self.nm, dtype=int) * self.min_section_index # !!! increasing size
 
 		# initialize edge selection
 		self.infeasible_action = np.zeros((self.nm,2), dtype=bool)
@@ -416,7 +517,7 @@ class Frame():
 		
 		# initialize node and edge inputs
 		self.v, self.w, _, cofs, deform_r_c, deform_r_b, stress_ratio, _, collapse, _, _, self.volume = self.update_state(self.sec_num)
-		self.feasible = self.check_feasibility(stress_ratio, cofs, deform_r_c, deform_r_b, collapse)
+		self.feasible, fail_reason = self.check_feasibility(stress_ratio, cofs, deform_r_c, deform_r_b, collapse)
 
 		self.Max_stress_ratio_before = np.max(stress_ratio)
 		self.Max_disp_ratio_before = np.max(np.concatenate([deform_r_c / self.allowable_column_disp, deform_r_b / self.allowable_beam_disp]))
@@ -440,24 +541,26 @@ class Frame():
 		self.sec_num[action[0]] = observation_value
 		n_change = 1
 		for dependent_member in self.dependency[action[1]][action[0]]:
+			# for 'dec' mode
 			if action[1] == 0:
 				if self.sec_num[dependent_member] > observation_value:
 					self.sec_num[dependent_member] = observation_value
 					n_change += 1
+			# for 'inc' mode
 			elif action[1] == 1:
 				if self.sec_num[dependent_member] < observation_value:
 					self.sec_num[dependent_member] = observation_value
 					n_change += 1
 					
-		self.infeasible_action[(self.sec_num == 200), 0] = True
-		self.infeasible_action[(self.sec_num == 1000), 1] = True
+		self.infeasible_action[(self.sec_num == self.min_section_index), 0] = True  # for 'dec' mode --> initial: [False, True]
+		self.infeasible_action[(self.sec_num == self.max_section_index), 1] = True  # for 'inc' mode --> initial: [True, False]
 				
 		self.v, self.w, _, cofs, deform_r_c, deform_r_b, stress_ratio, _, collapse, _, _, self.volume = self.update_state(self.sec_num)
 		V_diff = self.volume - volume_before # V_diff is positive if increasing size and negative if reducing size
 		#print(V_diff)
 
 		#if collapse: print('COLLAPSE')
-		self.feasible = self.check_feasibility(stress_ratio, cofs, deform_r_c, deform_r_b, collapse)
+		self.feasible, fail_reason = self.check_feasibility(stress_ratio, cofs, deform_r_c, deform_r_b, collapse)
 
 		Max_stress_ratio = np.max(stress_ratio)
 		Max_disp_ratio = np.max(np.concatenate([deform_r_c / self.allowable_column_disp, deform_r_b / self.allowable_beam_disp]))
@@ -465,27 +568,36 @@ class Frame():
 		
 		if self.mode == 'dec':
 			if self.feasible: # !!! reducing size
-				r1 = np.clip(self.Max_stress_ratio_before/Max_stress_ratio, 0.0, 0.99)
-				r2 = np.clip(self.Max_disp_ratio_before/Max_disp_ratio, 0.0, 0.99)
-				sv = Max_stress_ratio - np.min(stress_ratio)
-				reward = 0.1 * np.sqrt(-V_diff)/sv * -(np.log(1-r1) + np.log(1-r2)) #/n_change
+				if self.reward_type == 'original':
+					r1 = np.clip(self.Max_stress_ratio_before/Max_stress_ratio, 0.0, 0.99)
+					r2 = np.clip(self.Max_disp_ratio_before/Max_disp_ratio, 0.0, 0.99)
+					sv = Max_stress_ratio - np.min(stress_ratio)
+					reward = 0.1 * np.sqrt(-V_diff)/sv * -(np.log(1-r1) + np.log(1-r2)) #/n_change
+				elif self.reward_type == 'volume':
+					reward = -V_diff
 			else:
 				reward = -1.0
 				self.done = True
+				self.fail_reason = fail_reason
 
 		elif self.mode == 'inc':
 			if self.feasible: # !!! increasing size
 				reward = +1.0
 				self.done = True
+				self.fail_reason = fail_reason
 			else:
-				r1 = np.clip(Max_stress_ratio/self.Max_stress_ratio_before, None, 0.99) if Max_stress_ratio > 1.0 else 0.0
-				r2 = np.clip(Max_disp_ratio/self.Max_disp_ratio_before, None, 0.99) if Max_disp_ratio > 1.0 else 0.0
-				r3 = np.clip(self.Min_cof_before/Min_cof, None, 0.99) if Min_cof < 1.0 else 0.0
-				sv = Max_stress_ratio - np.min(stress_ratio)
-				reward = 0.1 * np.sqrt(V_diff)*sv * (np.log(1-r1) + np.log(1-r2) + np.log(1-r3))
+				if self.reward_type == 'original':
+					r1 = np.clip(Max_stress_ratio/self.Max_stress_ratio_before, None, 0.99) if Max_stress_ratio > 1.0 else 0.0
+					r2 = np.clip(Max_disp_ratio/self.Max_disp_ratio_before, None, 0.99) if Max_disp_ratio > 1.0 else 0.0
+					r3 = np.clip(self.Min_cof_before/Min_cof, None, 0.99) if Min_cof < 1.0 else 0.0
+					sv = Max_stress_ratio - np.min(stress_ratio)
+					reward = 0.1 * np.sqrt(V_diff)*sv * (np.log(1-r1) + np.log(1-r2) + np.log(1-r3))
+				elif self.reward_type == 'volume':
+					reward = V_diff
 
 		if np.all(self.infeasible_action):
 			self.done = True
+			self.fail_reason = fail_reason
 
 		self.Max_stress_ratio_before = Max_stress_ratio
 		self.Max_disp_ratio_before = Max_disp_ratio
@@ -494,7 +606,7 @@ class Frame():
 		self.total_reward += reward
 		self.steps += 1
 
-		return np.copy(self.v), np.copy(self.w), reward, self.done, np.copy(self.infeasible_action)
+		return np.copy(self.v), np.copy(self.w), reward, self.done, self.fail_reason, np.copy(self.infeasible_action)
 
 	def update_state(self, sec_num, v=None, w=None):
 
@@ -522,7 +634,7 @@ class Frame():
 		load_dummy[2][:,0] = 0
 
 		for loadcase in range(3):
-			disp_dummy[loadcase], force_dummy = OpenSees.LinearAnalysis(self.NX, self.NY, self.node_dummy, self.connectivity_dummy, A=section_dummy[:,0], I=section_dummy[:,2], load=load_dummy[loadcase])
+			disp_dummy[loadcase], force_dummy = OpenSees.LinearAnalysis(self.NX, self.NY, self.node_dummy, self.connectivity_dummy, A=section_dummy[:,0], I=section_dummy[:,2], load=load_dummy[loadcase], E=self.E)
 			stress_dummy[loadcase][:,0] = force_dummy[:,0] / section_dummy[:,0]  # axial force / A (unit: N/m^2)
 			stress_dummy[loadcase][:,1] = force_dummy[:,1] / section_dummy[:,4]  # moment at i-end / Zz (unit: N-m/m^3)
 			stress_dummy[loadcase][:,2] = force_dummy[:,2] / section_dummy[:,4]  # moment at j-end / Zz (unit: N-m/m^3)
@@ -562,7 +674,7 @@ class Frame():
 		Zp = np.array([self.column_plastic_section_modulus[sec_num[i]] for i in range(self.n_column)] + [self.beam_plastic_section_modulus[sec_num[i]] for i in range(self.n_column,self.nm)], dtype=float)
 		cofs = np.zeros((self.nk, 3))
 		for i in range(3):
-			cofs[:,i] = compute_cof(self.NX, self.NY, self.nk, self.n_column, self.DESIGN_STRENGTH_COLUMN, self.DESIGN_STRENGTH_BEAM, Zp, stress_dummy[i]) 
+			cofs[:,i] = compute_cof(self.NX, self.NY, self.nk, self.n_column, self.DESIGN_STRENGTH_COLUMN, self.DESIGN_STRENGTH_BEAM, Zp, stress_dummy[i], self.country) 
 		min_cof = np.min(cofs, axis=1)
 
 		# non-linear analysis
@@ -581,7 +693,7 @@ class Frame():
 			for i in range(2):
 				ultimate_load.append(np.copy(load_dummy[i]))
 				ultimate_load[i][:,0] *= 1.5 # 1st design: C0 = 0.2, 2nd design: C0=1.0 and Ds = 0.3
-				d, f, hinge = OpenSees.NonlinearAnalysis(self.NX, self.NY, self.node_dummy, self.connectivity_dummy, A=section_dummy[:,0], I=section_dummy[:,2], Zp=Zp_dummy, Sy=Sy_dummy, H=H_dummy, load=ultimate_load[i])
+				d, f, hinge = OpenSees.NonlinearAnalysis(self.NX, self.NY, self.node_dummy, self.connectivity_dummy, A=section_dummy[:,0], I=section_dummy[:,2], Zp=Zp_dummy, Sy=Sy_dummy, H=H_dummy, load=ultimate_load[i], E=self.E)
 				deforms_r_c_ultimate[:,i] = self.compute_deformation_ratio_column(d)
 
 			max_deform_r_c_ultimate = np.max(deforms_r_c_ultimate, axis=1)
@@ -661,27 +773,27 @@ class Frame():
 		## 3-8: section
 		sec = np.array([self.column_section_list[sec_num[i]] for i in range(self.n_column)] + [self.beam_section_list[sec_num[i]] for i in range(self.n_column,self.nm)], dtype=np.float32)
 		if self.mode == 'dec':
-			sec_num_next = np.clip(sec_num - 50, 200, 1000) # !!! reducing size: sec_num-50
+			sec_num_next = np.clip(sec_num - 50, self.min_section_index, self.max_section_index) # !!! reducing size: sec_num - 50
 		elif self.mode == 'inc':
-			sec_num_next = np.clip(sec_num + 50, 200, 1000) # !!! increasing size: sec_num+50
+			sec_num_next = np.clip(sec_num + 50, self.min_section_index, self.max_section_index) # !!! increasing size: sec_num + 50
 		sec_next = np.array([self.column_section_list[sec_num_next[i]] for i in range(self.n_column)] + [self.beam_section_list[sec_num_next[i]] for i in range(self.n_column,self.nm)], dtype=np.float32)
 
 		w[:, 3] = sec[:, 0] # A
 		w[:, 7] = sec_next[:, 0] # A_next
-		w[:self.n_column, [3,7]] /= self.column_section_list[1000][0]
-		w[self.n_column:, [3,7]] /= self.beam_section_list[1000][0]
+		w[:self.n_column, [3,7]] /= self.column_section_list[self.max_section_index][0]
+		w[self.n_column:, [3,7]] /= self.beam_section_list[self.max_section_index][0]
 		w[:, 4] = sec[:, 2] # Iz
 		w[:, 8] = sec_next[:, 2] # Iz_next
-		w[:self.n_column, [4,8]] /= self.column_section_list[1000][2]
-		w[self.n_column:, [4,8]] /= self.beam_section_list[1000][2]
+		w[:self.n_column, [4,8]] /= self.column_section_list[self.max_section_index][2]
+		w[self.n_column:, [4,8]] /= self.beam_section_list[self.max_section_index][2]
 		w[:, 5] = sec[:, 3] # Iy
 		w[:, 9] = sec_next[:, 3] # Iy_next
-		w[:self.n_column, [5,9]] /= self.column_section_list[1000][3]
-		w[self.n_column:, [5,9]] /= self.beam_section_list[1000][3]
+		w[:self.n_column, [5,9]] /= self.column_section_list[self.max_section_index][3]
+		w[self.n_column:, [5,9]] /= self.beam_section_list[self.max_section_index][3]
 		w[:, 6] = sec[:, 4] # Zz
 		w[:, 10] = sec_next[:, 4] # Zz_next
-		w[:self.n_column, [6,10]] /= self.column_section_list[1000][4]
-		w[self.n_column:, [6,10]] /= self.beam_section_list[1000][4]
+		w[:self.n_column, [6,10]] /= self.column_section_list[self.max_section_index][4]
+		w[self.n_column:, [6,10]] /= self.beam_section_list[self.max_section_index][4]
 
 		## 11: stress safety ratio
 		w[:, 11] = np.tanh(max_stress_ratio)
@@ -692,12 +804,25 @@ class Frame():
 		return w
 
 
-	def check_feasibility(self, stress_ratio, cofs, deform_r_c, deform_r_b, collapse):
-		if not collapse and np.all(stress_ratio<1.0) and np.all(cofs[:-(self.NX+1)]>1.0) and np.all(deform_r_c<self.allowable_column_disp) and np.all(deform_r_b<self.allowable_beam_disp):
-			feasible = True
+	def check_feasibility(self, stress_ratio, cofs, deform_r_c, deform_r_b, collapse) -> tuple[bool, str]:
+		# if not collapse and np.all(stress_ratio<1.0) and np.all(cofs[:-(self.NX+1)]>1.0) and np.all(deform_r_c<self.allowable_column_disp) and np.all(deform_r_b<self.allowable_beam_disp):
+		# 	feasible = True
+		# else:
+		# 	feasible = False
+		# return feasible
+	
+		if np.any(cofs[:-(self.NX+1)] < 1.0): 
+			return False, "cof"
+		elif np.any(stress_ratio > 1.0): 
+			return False, "stress"
+		elif np.any(deform_r_c > self.allowable_column_disp):
+			return False, "disp_col"
+		elif np.any(deform_r_b > self.allowable_beam_disp):
+			return False, "disp_beam"
+		elif collapse:
+			return False, "collapse"
 		else:
-			feasible = False
-		return feasible
+			return True, "feasible"
 
 	def render(self, mode='section', show=False, title=None, result_dir="result"):
 		'''
@@ -826,7 +951,7 @@ class Frame():
 				self.sec_num[i] = max_sec_above
 
 		self.v, self.w, _, cofs, deform_r_c, deform_r_b, stress_ratio, _, collapse, _, _, volume = self.update_state(self.sec_num)
-		self.feasible = self.check_feasibility(stress_ratio, cofs, deform_r_c, deform_r_b, collapse)
+		self.feasible, fail_reason = self.check_feasibility(stress_ratio, cofs, deform_r_c, deform_r_b, collapse)
 
 		if self.feasible:
 			f = volume

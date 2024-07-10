@@ -137,7 +137,7 @@ class NN(torch.nn.Module):
 
 
 class Brain():
-    def __init__(self, n_node_inputs, n_edge_inputs, n_feature_outputs, n_action_types, use_gpu):
+    def __init__(self, n_node_inputs, n_edge_inputs, n_feature_outputs, n_action_types, use_gpu, loss_type):
         if use_gpu:
             self.device = torch.device('cuda')
         else:
@@ -149,6 +149,7 @@ class Brain():
         self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=1.0e-5)
         self.memory = deque()
         self.lossfunc = torch.nn.MSELoss()
+        self.loss_type = loss_type
 
     def store_experience(self, connectivity, v, w, action, reward, v_next, w_next, ep_end, infeasible_actions):
         v = torch.tensor(v, dtype=torch.float32, device=self.device, requires_grad=False)
@@ -190,12 +191,15 @@ class Brain():
         
         c, v, w, a, r, v_next, w_next, ep_end, infeasible_actions, nm = self.sample_batch()
         self.optimizer.zero_grad()
-        loss = self.calc_loss(c, v, w, a, r, v_next, w_next, ep_end, infeasible_actions, nm)
+        if self.loss_type == "Japan":
+            loss = self.calc_loss_Japan(c, v, w, a, r, v_next, w_next, ep_end, infeasible_actions, nm)
+        elif self.loss_type == "Taiwan":
+            loss = self.calc_loss_Taiwan(c, v, w, a, r, v_next, w_next, ep_end, infeasible_actions, nm)
         loss.backward()
         self.optimizer.step()
         return loss.detach().to('cpu').numpy()
 
-    def calc_loss(self, c, v, w, action, r, v_next, w_next, ep_end, infeasible_actions, nm):
+    def calc_loss_Japan(self, c, v, w, action, r, v_next, w_next, ep_end, infeasible_actions, nm):
         Q_value = self.model.Forward(v, w, c, nm_batch=nm)
         tmp = self.target_model.Forward(v_next, w_next, c, nm_batch=nm).detach()
         tmp[infeasible_actions] = -1.0e20
@@ -204,6 +208,24 @@ class Brain():
         Q_target = r + (GAMMA * Q_max_next) * ~ep_end
         loss = self.lossfunc(Q_current, Q_target)
 
+        return loss
+    
+    def calc_loss_Taiwan(self, c, v, w, action, r, v_next, w_next, ep_end, infeasible_actions, nm):
+        # action Q-network
+        Q_value = self.model.Forward(v, w, c, nm_batch=nm)
+        Q_current = Q_value[action[:,0], action[:,1]]
+
+        Q_value_next = self.model.Forward(v_next, w_next, c, nm_batch=nm).detach()
+        Q_value_next[infeasible_actions] = -1.0e20
+        action_max_next = torch.tensor([(Q_value_next[nm[i]:nm[i+1]].argmax(dim=0) + nm[i]).tolist() for i in range(BATCH_SIZE)], dtype=torch.int64, device=self.device, requires_grad=False)
+
+        # target Q-network
+        tmp = self.target_model.Forward(v_next, w_next, c, nm_batch=nm).detach()
+        action_type = action[0,1]  # same action type for all batch
+        Q_value_max_next = tmp[action_max_next[:,action_type], action[:,1]]
+        Q_target = r + (GAMMA * Q_value_max_next) * ~ep_end
+
+        loss = self.lossfunc(Q_current, Q_target)
         return loss
 
     def decide_action(self, v, w, c, eps, infeasible_actions):
@@ -221,8 +243,8 @@ class Brain():
 
 
 class Agent():
-    def __init__(self, n_node_inputs, n_edge_inputs, n_feature_outputs, n_action_types, use_gpu):
-        self.brain = Brain(n_node_inputs, n_edge_inputs, n_feature_outputs, n_action_types, use_gpu)     
+    def __init__(self, n_node_inputs, n_edge_inputs, n_feature_outputs, n_action_types, use_gpu, loss_type):
+        self.brain = Brain(n_node_inputs, n_edge_inputs, n_feature_outputs, n_action_types, use_gpu, loss_type)     
         self.step = 0
         self.target_update_freq = TARGET_UPDATE_FREQ
 
