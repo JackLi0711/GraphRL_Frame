@@ -190,7 +190,7 @@ def allowable_stress(nm, nm_dummy, n_column, section, length, E, Fyc, Fyb, term)
 		return allowable_stress_compression_dummy/1.5, allowable_stress_tension_dummy/1.5, allowable_stress_bending_dummy/1.5
 
 # @nb.njit(parallel=True)
-def compute_cof(nx, ny, nk, n_column, Fyc, Fyb, Zp, stress_dummy, country) -> np.ndarray:
+def compute_cof(nx, ny, nk, n_column, Fyc, Fyb, Zp, stress_dummy, code_type) -> np.ndarray:
 	'''
 	- Input
 		- stress_dummy [np.ndarray, shape: (nm_dummy,3)]: nm_dummy stresses, with an order that columns come first and beams next.
@@ -199,7 +199,7 @@ def compute_cof(nx, ny, nk, n_column, Fyc, Fyb, Zp, stress_dummy, country) -> np
 	'''
 	cof = np.ones(nk) * np.inf
 
-	if country == "Japan":
+	if code_type == "Japan":
 		for ii in range(nx+1, nk-(nx+1)):
 			i = ii // (nx+1)-1  # 在第幾層樓 (縱坐標)
 			j = ii % (nx+1)  	# horizontal grid index (橫坐標)
@@ -236,7 +236,7 @@ def compute_cof(nx, ny, nk, n_column, Fyc, Fyb, Zp, stress_dummy, country) -> np
 
 			cof[ii] = (Mpc_bottom + Mpc_upper) / (Mpb_left + Mpb_right)
 
-	if country == "Taiwan":
+	if code_type == "Taiwan":
 		reduced_stress = stress_dummy[:,0]  	  # reduced_stress: np.abs(Puc / Ag), stress_dummy[:,0]: axial force / A (unit: N/m^2)
 		reduced_stress[reduced_stress > 0] = 0.0  # only consider compression case
 
@@ -319,12 +319,13 @@ def check_collapse(nx, ny, n_column, nm, hinge):
 
 class Frame():
 
-	def __init__(self, mode, country, reward_type):
+	def __init__(self, mode, section_type, code_type, reward_type):
 		self.mode = mode  # "dec", "inc"
-		self.country = country  # "Japan", "Taiwan"
+		self.section_type = section_type  # "Japan", "Taiwan_OldSections", "Taiwan_AdjustedMoreSections"
+		self.code_type = code_type  # "Japan", "Taiwan"
 		self.reward_type = reward_type  # "original", "volume"
 
-		if self.country == "Japan":
+		if "Japan" in self.section_type:
 			self.column_section_list = {
 				## A, Ix, Iz(strong), Iy(weak), Zz(strong), Zy(weak) [metric]
 				200: (85.3/1.0E4, 2*4860/1.0E8, 4860/1.0E8, 4860/1.0E8, 486/1.0E6, 486/1.0E6), # 200x200x12
@@ -369,7 +370,36 @@ class Frame():
 			}
 			self.beam_plastic_section_modulus = {200:301/1.0E6, 250:550/1.0E6, 300:842/1.0E6, 350:1380/1.0E6, 400:1770/1.0E6, 450:2750/1.0E6, 500:3130/1.0E6, 550:3520/1.0E6, 600:4540/1.0E6, 650:5030/1.0E6, 700:5580/1.0E6, 750:7850/1.0E6, 800:8520/1.0E6, 850:9540/1.0E6, 900:10300/1.0E6, 950:11100/1.0E6, 1000: 11900/1.0E6}
 		
-		elif self.country == "Taiwan":
+		elif "Taiwan_OldSections" in self.section_type:
+			self.column_section_list = {
+				## A, Ix, Iz(strong), Iy(weak), Zz(strong), Zy(weak) [metric]
+				600: (304.00/1.0E4, 2*73365/1.0E8, 73365/1.0E8, 73365/1.0E8, 3668/1.0E6, 3668/1.0E6),  # 400x400x20
+				650: (332.64/1.0E4, 2*79483/1.0E8, 79483/1.0E8, 79483/1.0E8, 3974/1.0E6, 3974/1.0E6),  # 400x400x22
+				700: (375.00/1.0E4, 2*88281/1.0E8, 88281/1.0E8, 88281/1.0E8, 4414/1.0E6, 4414/1.0E6),  # 400x400x25
+				750: (528.64/1.0E4, 2*196978/1.0E8, 196978/1.0E8, 196978/1.0E8, 7879/1.0E6, 7879/1.0E6),  # 500x500x28
+				800: (599.04/1.0E4, 2*219696/1.0E8, 219696/1.0E8, 219696/1.0E8, 8788/1.0E6, 8788/1.0E6),  # 500x500x32
+				850: (668.16/1.0E4, 2*241197/1.0E8, 241197/1.0E8, 241197/1.0E8, 9648/1.0E6, 9648/1.0E6),  # 500x500x36
+				900: (896.00/1.0E4, 2*470699/1.0E8, 470699/1.0E8, 470699/1.0E8, 15690/1.0E6, 15690/1.0E6),  # 600x600x40
+				950: (999.00/1.0E4, 2*516233/1.0E8, 516233/1.0E8, 516233/1.0E8, 17208/1.0E6, 17208/1.0E6),  # 600x600x45
+				1000: (1100.00/1.0E4, 2*559167/1.0E8, 559167/1.0E8, 559167/1.0E8, 18639/1.0E6, 18639/1.0E6)  # 600x600x50
+			}
+			self.column_plastic_section_modulus = {600:5502/1.0E6, 650:5961/1.0E6, 700:6621/1.0E6, 750:11819/1.0E6, 800:13182/1.0E6, 850:14472/1.0E6, 900:23535/1.0E6, 950:25812/1.0E6, 1000:27958/1.0E6}
+
+			self.beam_section_list = {
+				## A, Ix, Iz(strong), Iy(weak), Zz(strong), Zy(weak) [metric]
+				600: (100.00/1.0E4, 2*32503/1.0E8, 32503/1.0E8, 2136/1.0E8, 1505/1.0E6, 214/1.0E6),  # 400x200x9x16
+				650: (116.00/1.0E4, 2*40107/1.0E8, 40107/1.0E8, 2669/1.0E8, 1823/1.0E6, 267/1.0E6),  # 400x200x9x20
+				700: (136.00/1.0E4, 2*45614/1.0E8, 45614/1.0E8, 2939/1.0E8, 2055/1.0E6, 294/1.0E6),  # 400x200x12x22
+				750: (160.00/1.0E4, 2*81458/1.0E8, 81458/1.0E8, 3341/1.0E8, 2962/1.0E6, 334/1.0E6),  # 500x200x12x25
+				800: (185.00/1.0E4, 2*98698/1.0E8, 98698/1.0E8, 6518/1.0E8, 3589/1.0E6, 521/1.0E6),  # 500x250x12x25
+				850: (200.00/1.0E4, 2*110166/1.0E8, 110166/1.0E8, 7299/1.0E8, 3963/1.0E6, 584/1.0E6),  # 500x250x12x28
+				900: (232.00/1.0E4, 2*181506/1.0E8, 181506/1.0E8, 8342/1.0E8, 5467/1.0E6, 667/1.0E6),  # 600x250x12x32
+				950: (276.00/1.0E4, 2*211018/1.0E8, 211018/1.0E8, 9395/1.0E8, 6280/1.0E6, 752/1.0E6),  # 600x250x16x36
+				1000: (312.00/1.0E4, 2*247461/1.0E8, 247461/1.0E8, 16220/1.0E8, 7365/1.0E6, 1081/1.0E6)  # 600x300x16x36
+			}
+			self.beam_plastic_section_modulus = {600:1685/1.0E6, 650:2042/1.0E6, 700:2301/1.0E6, 750:3318/1.0E6, 800:4020/1.0E6, 850:4438/1.0E6, 900:6123/1.0E6, 950:7034/1.0E6, 1000:8249/1.0E6}
+
+		elif "Taiwan_AdjustedMoreSections" in self.section_type:
 			self.column_section_list = {
 				## A, Ix, Iz(strong), Iy(weak), Zz(strong), Zy(weak) [metric]
 				300: (264.00/1.0E4, 2*48092/1.0E8, 48092/1.0E8, 48092/1.0E8, 2748/1.0E6, 2748/1.0E6),  # 350x350x20
@@ -414,12 +444,12 @@ class Frame():
 		self.max_section_index = list(self.column_section_list.keys())[-1]  # Japan: 1000, Taiwan: 1000
 
 		# material
-		if self.country == "Japan":
+		if "Japan" in self.section_type:
 			self.DESIGN_STRENGTH_BEAM = 235e6   # [N/m^2], 235e6 for SN400 and BCP235; 325e6 for SN490 and BCP325
 			self.DESIGN_STRENGTH_COLUMN = 235e6 # [N/m^2], 235e6 for SN400 and BCP235; 325e6 for SN490 and BCP325
 			self.E = 2.05e11
 			self.G = 7.9e10
-		elif self.country == "Taiwan":
+		elif "Taiwan" in self.section_type:
 			self.DESIGN_STRENGTH_BEAM = 350e6  	 # [N/m^2]
 			self.DESIGN_STRENGTH_COLUMN = 350e6  # [N/m^2]
 			self.E = 2.00e11  # [N/m^2]
@@ -433,7 +463,7 @@ class Frame():
 		self.reset(test=True)
 
 	def reset(self, test=0):
-		if self.country == "Japan":
+		if "Japan" in self.section_type:
 			if test == 0: ## Randomly generate the structural shape if test == 0
 				self.NX = np.random.randint(2,6)
 				self.NY = np.random.randint(2,11)
@@ -457,7 +487,7 @@ class Frame():
 				self.height = np.ones(self.NY)*3.5 # ex.1 2 and 3: 3.5
 				self.height[0] = 4.0 # ex.1 2 and 3: 4.03.5
 
-		elif self.country == "Taiwan":
+		elif "Taiwan" in self.section_type:
 			if test == 0:  # Randomly generate the structural shape if test == 0
 				self.NX = np.random.randint(2, 6)  				  # span_num: 2-5
 				self.NY = np.random.randint(3, 11)  			  # story_num: 3-10
@@ -552,8 +582,8 @@ class Frame():
 					self.sec_num[dependent_member] = observation_value
 					n_change += 1
 					
-		self.infeasible_action[(self.sec_num == self.min_section_index), 0] = True  # for 'dec' mode --> initial: [False, True]
-		self.infeasible_action[(self.sec_num == self.max_section_index), 1] = True  # for 'inc' mode --> initial: [True, False]
+		self.infeasible_action[(self.sec_num == self.min_section_index), 0] = True  # for 'dec' mode, initial: [False, True]
+		self.infeasible_action[(self.sec_num == self.max_section_index), 1] = True  # for 'inc' mode, initial: [True, False]
 				
 		self.v, self.w, _, cofs, deform_r_c, deform_r_b, stress_ratio, _, collapse, _, _, self.volume = self.update_state(self.sec_num)
 		V_diff = self.volume - volume_before # V_diff is positive if increasing size and negative if reducing size
@@ -674,7 +704,7 @@ class Frame():
 		Zp = np.array([self.column_plastic_section_modulus[sec_num[i]] for i in range(self.n_column)] + [self.beam_plastic_section_modulus[sec_num[i]] for i in range(self.n_column,self.nm)], dtype=float)
 		cofs = np.zeros((self.nk, 3))
 		for i in range(3):
-			cofs[:,i] = compute_cof(self.NX, self.NY, self.nk, self.n_column, self.DESIGN_STRENGTH_COLUMN, self.DESIGN_STRENGTH_BEAM, Zp, stress_dummy[i], self.country) 
+			cofs[:,i] = compute_cof(self.NX, self.NY, self.nk, self.n_column, self.DESIGN_STRENGTH_COLUMN, self.DESIGN_STRENGTH_BEAM, Zp, stress_dummy[i], self.code_type) 
 		min_cof = np.min(cofs, axis=1)
 
 		# non-linear analysis
