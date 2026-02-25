@@ -256,7 +256,16 @@ class Brain():
             a = action, action_type  # action_type = 0: dec, 1: inc
 
         return a, Q[a]
-
+    
+    def gnn_coupling(self):
+        self.target_model.l1_1.weight.data = copy.deepcopy(self.model.l1_1.weight.data)
+        self.target_model.l1_2.weight.data = copy.deepcopy(self.model.l1_2.weight.data)
+        self.target_model.l1_3.weight.data = copy.deepcopy(self.model.l1_3.weight.data)
+        if USE_BIAS:
+            self.target_model.l1_1.bias.data = copy.deepcopy(self.model.l1_1.bias.data)
+            self.target_model.l1_2.bias.data = copy.deepcopy(self.model.l1_2.bias.data)
+            self.target_model.l1_3.bias.data = copy.deepcopy(self.model.l1_3.bias.data)
+            
 
 class Agent():
     def __init__(self, n_node_inputs: int, n_edge_inputs: int, n_feature_outputs: int, n_action_types: int, 

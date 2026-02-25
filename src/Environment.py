@@ -16,7 +16,7 @@ MAX_STEPS = 10000
 
 
 class Environment():
-    def __init__(self, use_gpu: bool, mode: str, model_name: str, section_type: str, code_type: str, reward_type: str, loss_type: str, 
+    def __init__(self, use_gpu: bool, mode: str, model_name: str, section_type: str, code_type: str, reward_type: str, loss_type: str, gnn_coupling: bool,
                  n_feature: int, capacity: int, batch_size: int, memorize_frequency: int, gamma: float, target_update_freq: int, record_interval: int, 
                  optimizer: str, epsilon_schedule: callable):
         
@@ -27,6 +27,7 @@ class Environment():
         self.memorize_frequency = memorize_frequency
         self.epsilon_schedule = epsilon_schedule
         # for Agent
+        self.gnn_coupling = gnn_coupling
         self.loss_type = loss_type
         self.N_FEATURE = n_feature
         self.CAPACITY = capacity
@@ -67,6 +68,8 @@ class Environment():
                     self.agent.memorize(C, v, w, action, reward, v_next, w_next, ep_end, infeasible_action)
                 v = np.copy(v_next)
                 w = np.copy(w_next)
+                if self.gnn_coupling:
+                    self.agent.brain.gnn_coupling()
                 aveloss += self.agent.update_q_function()
                 total_reward += reward
                 if ep_end:

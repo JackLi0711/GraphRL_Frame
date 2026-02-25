@@ -10,7 +10,7 @@ from argparse import ArgumentParser, Namespace
 def parse_args() -> Namespace:
     parser = ArgumentParser()
      
-    parser.add_argument("--model_name", type=str, default="Dec_JapanSection_OriginalReward_JapanLoss_JapanCOF_JapanHyperparameters_Episode5000")
+    parser.add_argument("--model_name", type=str, default="Dec_JapanSection_OriginalReward_JapanLoss_JapanCOF_JapanHyperparameters_TestGNNCoupling")
     parser.add_argument("--mode", type=str, default="dec", help="Specify inc if increasing the size from the minimum cross-sections; specify dec if reducing the size from the maximum cross-sections.")
 
     parser.add_argument("--train", action='store_true', default=True, help="True if implement the training. False if only using the pre-trained machine learning model.")
@@ -23,6 +23,7 @@ def parse_args() -> Namespace:
     parser.add_argument("--test_model", type=int, default=1, help="Structural model to test the trained model's performance")
 
     # model
+    parser.add_argument("--gnn_coupling", action="store_true", default=False, help="Couple the GNN of two models(online, target) for the training")
     parser.add_argument("--N_FEATURE", type=int, default=100, help="hidden_dim")
 
     # buffer
@@ -79,6 +80,7 @@ def main(args):
         "code_type": args.code_type,
         "reward_type": args.reward_type,
         "loss_type": args.loss_type, 
+        "gnn_coupling": args.gnn_coupling,
 
         "n_feature": args.N_FEATURE,
         "capacity": args.CAPACITY,
