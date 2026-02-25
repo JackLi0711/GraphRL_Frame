@@ -1,27 +1,7 @@
-/result/
-/check/
+result/
+check/
 
-/NonlinearDynamicAnalysisSimulator/trained_GraphLSTM/
-/NonlinearDynamicAnalysisSimulator/ground_motions/
-
-/Validation/AdjustedMoreSections_RestrictAction_StraightDecay0.1_BufferSize20000_BatchSize512_Epoch300/
-/Validation/AdjustedMoreSections_RestrictAction_StraightDecay0.1_BufferSize20000_BatchSize512_Epoch300_BetterGraphLSTM/
-/Validation/TonySettings/
-/Validation/useless_analyze_file/
-/Validation/design_earthquake_force_comparison
-
-/NewStrategy/
-
-/參考資料/
-/暫時用不到的程式碼/
-
-check_inference.ipynb
-check_performance.ipynb
-check_section.ipynb
-check_Tony_design.ipynb
-check_new_strategy.ipynb
-analyize_seismic_behavior.ipynb
-
+.vscode/
 .DS_Store
 .DS_Store?
 
